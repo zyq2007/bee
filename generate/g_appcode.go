@@ -258,9 +258,9 @@ func (tag *OrmTag) String() string {
 		return ""
 	}
 	if tag.Comment != "" {
-		return fmt.Sprintf("`orm:\"%s\" description:\"%s\"`", strings.Join(ormOptions, ";"), tag.Comment)
+		return fmt.Sprintf("`json:\"%s\" orm:\"%s\" description:\"%s\"`", tag.Column, strings.Join(ormOptions, ";"), tag.Comment)
 	}
-	return fmt.Sprintf("`orm:\"%s\"`", strings.Join(ormOptions, ";"))
+	return fmt.Sprintf("`json:\"%s\" orm:\"%s\"`", tag.Column, strings.Join(ormOptions, ";"))
 }
 
 func GenerateAppcode(driver, connStr, level, tables, currpath string) {
