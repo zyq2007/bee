@@ -297,7 +297,15 @@ func (c *{{controllerName}}Controller) Put() {
 	id, _ := strconv.ParseInt(idStr, 0, 64)
 	v := models.{{controllerName}}{Id: id}
 	json.Unmarshal(c.Ctx.Input.RequestBody, &v)
-	if err := models.Update{{controllerName}}ById(&v); err == nil {
+
+	var mapResult map[string]interface{}
+	var updateKeys []string
+	json.Unmarshal([]byte(jsonStr), &mapResult)
+	for key, _ := range mapResult{
+		updateKeys = append(updateKeys, key)
+	}
+
+	if err := models.Update{{controllerName}}ById(&v, updateKeys); err == nil {
 		c.Data["json"] = "OK"
 	} else {
 		c.Data["json"] = err.Error()

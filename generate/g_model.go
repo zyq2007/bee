@@ -249,13 +249,13 @@ func GetAll{{modelName}}(query map[string]string, fields []string, sortby []stri
 
 // Update{{modelName}} updates {{modelName}} by Id and returns error if
 // the record to be updated doesn't exist
-func Update{{modelName}}ById(m *{{modelName}}) (err error) {
+func Update{{modelName}}ById(m *{{modelName}}, updateKeys []string) (err error) {
 	o := orm.NewOrm()
 	v := {{modelName}}{Id: m.Id}
 	// ascertain id exists in the database
 	if err = o.Read(&v); err == nil {
 		var num int64
-		if num, err = o.Update(m); err == nil {
+		if num, err = o.Update(m, updateKeys...); err == nil {
 			fmt.Println("Number of records updated in database:", num)
 		}
 	}
