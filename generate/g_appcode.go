@@ -140,12 +140,14 @@ var typeMappingPostgres = map[string]string{
 
 // Table represent a table in a database
 type Table struct {
-	Name          string
-	Pk            string
-	Uk            []string
-	Fk            map[string]*ForeignKey
-	Columns       []*Column
-	ImportTimePkg bool
+	Name             string
+	Pk               string
+	Uk               []string
+	Fk               map[string]*ForeignKey
+	Columns          []*Column
+	ImportTimePkg    bool
+	ImportStrconvPkg bool
+	PkType           string
 }
 
 // Column reprsents a column for a table
@@ -449,7 +451,13 @@ func (mysqlDB *MysqlDB) GetColumns(db *sql.DB, table *Table, blackList map[strin
 		tag.Comment = columnComment
 		if table.Pk == colName {
 			col.Name = "Id"
-			col.Type = "int"
+			table.ImportStrconvPkg = false
+			if col.Type != "string" {
+				col.Type = "int"
+				table.ImportStrconvPkg = true
+			}
+			table.PkType = col.Type
+			//col.Type = "int"
 			if extra == "auto_increment" {
 				tag.Auto = true
 			} else {
@@ -780,6 +788,7 @@ func writeModelFiles(tables []*Table, mPath string) {
 		fileStr := strings.Replace(template, "{{modelStruct}}", tb.String(), 1)
 		fileStr = strings.Replace(fileStr, "{{modelName}}", utils.CamelCase(tb.Name), -1)
 		fileStr = strings.Replace(fileStr, "{{tableName}}", tb.Name, -1)
+		fileStr = strings.Replace(fileStr, "{{idTypeName}}", tb.PkType, -1)
 
 		// If table contains time field, import time.Time package
 		timePkg := ""
@@ -832,6 +841,15 @@ func writeControllerFiles(tables []*Table, cPath string, pkgPath string) {
 		}
 		fileStr := strings.Replace(CtrlTPL, "{{ctrlName}}", utils.CamelCase(tb.Name), -1)
 		fileStr = strings.Replace(fileStr, "{{pkgPath}}", pkgPath, -1)
+		ctrlSetIdStr := "id := c.Ctx.Input.Param(\":id\")"
+		strConvPkg := ""
+		if tb.PkType != "string" {
+			strConvPkg = "\"strconv\""
+			ctrlSetIdStr = "idStr := c.Ctx.Input.Param(\":id\")\nid, _ := strconv.Atoi(idStr)"
+		}
+		fileStr = strings.Replace(fileStr, "{{ctrlSetIdStr}}", ctrlSetIdStr, -1)
+		fileStr = strings.Replace(fileStr, "{{strConvPkg}}", strConvPkg, -1)
+
 		if _, err := f.WriteString(fileStr); err != nil {
 			beeLogger.Log.Fatalf("Could not write controller file to '%s': %s", fpath, err)
 		}
@@ -1015,7 +1033,7 @@ func Add{{modelName}}(m *{{modelName}}) (id int64, err error) {
 
 // Get{{modelName}}ById retrieves {{modelName}} by Id. Returns error if
 // Id doesn't exist
-func Get{{modelName}}ById(id int) (v *{{modelName}}, err error) {
+func Get{{modelName}}ById(id {{idTypeName}}) (v *{{modelName}}, err error) {
 	o := orm.NewOrm()
 	v = &{{modelName}}{Id: id}
 	if err = o.Read(v); err == nil {
@@ -1104,13 +1122,13 @@ func GetAll{{modelName}}(query map[string]string, fields []string, sortby []stri
 
 // Update{{modelName}} updates {{modelName}} by Id and returns error if
 // the record to be updated doesn't exist
-func Update{{modelName}}ById(m *{{modelName}}) (err error) {
+func Update{{modelName}}ById(m *{{modelName}}, updateKeys []string) (err error) {
 	o := orm.NewOrm()
 	v := {{modelName}}{Id: m.Id}
 	// ascertain id exists in the database
 	if err = o.Read(&v); err == nil {
 		var num int64
-		if num, err = o.Update(m); err == nil {
+		if num, err = o.Update(m, updateKeys...); err == nil {
 			fmt.Println("Number of records updated in database:", num)
 		}
 	}
@@ -1119,7 +1137,7 @@ func Update{{modelName}}ById(m *{{modelName}}) (err error) {
 
 // Delete{{modelName}} deletes {{modelName}} by Id and returns error if
 // the record to be deleted doesn't exist
-func Delete{{modelName}}(id int) (err error) {
+func Delete{{modelName}}(id {{idTypeName}}) (err error) {
 	o := orm.NewOrm()
 	v := {{modelName}}{Id: id}
 	// ascertain id exists in the database
@@ -1138,7 +1156,7 @@ import (
 	"{{pkgPath}}/models"
 	"encoding/json"
 	"errors"
-	"strconv"
+	{{strConvPkg}}
 	"strings"
 
 	"github.com/astaxie/beego"
@@ -1188,8 +1206,7 @@ func (c *{{ctrlName}}Controller) Post() {
 // @Failure 403 :id is empty
 // @router /:id [get]
 func (c *{{ctrlName}}Controller) GetOne() {
-	idStr := c.Ctx.Input.Param(":id")
-	id, _ := strconv.Atoi(idStr)
+{{ctrlSetIdStr}}
 	v, err := models.Get{{ctrlName}}ById(id)
 	if err != nil {
 		c.Data["json"] = err.Error()
@@ -1271,11 +1288,20 @@ func (c *{{ctrlName}}Controller) GetAll() {
 // @Failure 403 :id is not int
 // @router /:id [put]
 func (c *{{ctrlName}}Controller) Put() {
-	idStr := c.Ctx.Input.Param(":id")
-	id, _ := strconv.Atoi(idStr)
+{{ctrlSetIdStr}}
 	v := models.{{ctrlName}}{Id: id}
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &v); err == nil {
-		if err := models.Update{{ctrlName}}ById(&v); err == nil {
+
+		var mapResult map[string]interface{}
+		var updateKeys []string
+		json.Unmarshal([]byte(c.Ctx.Input.RequestBody), &mapResult)
+		for key, _ := range mapResult{
+			if key != "id"{
+				updateKeys = append(updateKeys, key)
+			}
+		}
+
+		if err := models.Update{{ctrlName}}ById(&v,updateKeys); err == nil {
 			c.Data["json"] = "OK"
 		} else {
 			c.Data["json"] = err.Error()
@@ -1294,8 +1320,7 @@ func (c *{{ctrlName}}Controller) Put() {
 // @Failure 403 id is empty
 // @router /:id [delete]
 func (c *{{ctrlName}}Controller) Delete() {
-	idStr := c.Ctx.Input.Param(":id")
-	id, _ := strconv.Atoi(idStr)
+{{ctrlSetIdStr}}
 	if err := models.Delete{{ctrlName}}(id); err == nil {
 		c.Data["json"] = "OK"
 	} else {

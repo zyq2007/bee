@@ -302,7 +302,9 @@ func (c *{{controllerName}}Controller) Put() {
 	var updateKeys []string
 	json.Unmarshal([]byte(jsonStr), &mapResult)
 	for key, _ := range mapResult{
-		updateKeys = append(updateKeys, key)
+		if key != "id"{
+			updateKeys = append(updateKeys, key)
+		}
 	}
 
 	if err := models.Update{{controllerName}}ById(&v, updateKeys); err == nil {
